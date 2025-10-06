@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background-color: #F4F7F9;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-[#4A90E2] hover:bg-[#357ABD] text-white font-medium py-2 px-4 rounded-lg transition-colors;
+  }
+  
+  .btn-secondary {
+    @apply bg-[#F4F7F9] hover:bg-gray-200 text-[#333333] font-medium py-2 px-4 rounded-lg transition-colors border border-gray-200;
+  }
+  
+  .btn-accent {
+    @apply bg-[#50E3C2] hover:bg-[#3DD9B7] text-white font-medium py-2 px-4 rounded-lg transition-colors;
+  }
+  
+  .card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-100 p-6;
+  }
+  
+  /* AQI Color System */
+  .aqi-good {
+    background-color: #00E400;
+    color: white;
+  }
+  
+  .aqi-moderate {
+    background-color: #FFFF00;
+    color: #333333;
+  }
+  
+  .aqi-unhealthy-sensitive {
+    background-color: #FF7E00;
+    color: white;
+  }
+  
+  .aqi-unhealthy {
+    background-color: #FF0000;
+    color: white;
+  }
+  
+  .aqi-very-unhealthy {
+    background-color: #8F3F97;
+    color: white;
+  }
+  
+  .aqi-hazardous {
+    background-color: #7E0023;
+    color: white;
+  }
+}
