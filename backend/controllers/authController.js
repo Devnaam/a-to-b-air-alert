@@ -35,9 +35,11 @@ const createSendToken = (user, statusCode, res, message = 'Success') => {
   });
 };
 
-// Register new user
+// ✅ UPDATED Register new user with healthProfile support
 exports.register = asyncHandler(async (req, res) => {
-  const { name, email, password } = req.body;
+  console.log('🔄 Registration request:', req.body);
+  
+  const { name, email, password, healthProfile } = req.body;
 
   // Check if user already exists
   const existingUser = await User.findByEmail(email);
@@ -45,8 +47,17 @@ exports.register = asyncHandler(async (req, res) => {
     throw new AppError('User with this email already exists', 409);
   }
 
+  // Create user data object
+  const userData = {
+    name,
+    email,
+    password,
+    // Include healthProfile if provided
+    ...(healthProfile && { healthProfile })
+  };
+
   // Create new user
-  const user = await User.create({ name, email, password });
+  const user = await User.create(userData);
   
   logger.info(`New user registered: ${email}`);
   
@@ -179,7 +190,12 @@ exports.getProfile = asyncHandler(async (req, res) => {
   }
 
   // Get user statistics
-  const stats = await User.getStats(req.user.id);
+  let stats = {};
+  try {
+    stats = await User.getStats(req.user.id);
+  } catch (error) {
+    console.warn('Could not get user stats:', error.message);
+  }
 
   res.status(200).json({
     status: 'success',

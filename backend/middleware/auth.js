@@ -1,71 +1,93 @@
-const jwt = require('jsonwebtoken');
-const asyncHandler = require('../utils/asyncHandler');
-const AppError = require('../utils/AppError');
-const User = require('../models/User');
+const jwt = require("jsonwebtoken");
+const asyncHandler = require("../utils/asyncHandler");
+const AppError = require("../utils/AppError");
+const User = require("../models/User");
 
 // Protect routes - verify JWT token
 const protect = asyncHandler(async (req, res, next) => {
-  // 1) Get token from header
-  let token;
-  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-    token = req.headers.authorization.split(' ')[1];
-  }
+	let token;
 
-  if (!token) {
-    return next(new AppError('You are not logged in! Please log in to get access.', 401));
-  }
+	// Check for token in Authorization header or cookies
+	if (
+		req.headers.authorization &&
+		req.headers.authorization.startsWith("Bearer")
+	) {
+		token = req.headers.authorization.split(" ")[1];
+	} else if (req.cookies && req.cookies.jwt) {
+		token = req.cookies.jwt;
+	}
 
-  // 2) Verify token
-  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+	// For /profile endpoint, allow access without token
+	if (!token && req.path === "/profile") {
+		return next();
+	}
 
-  // 3) Check if user still exists
-  const currentUser = await User.findById(decoded.userId);
-  if (!currentUser) {
-    return next(new AppError('The user belonging to this token does no longer exist.', 401));
-  }
+	// For other protected routes, require token
+	if (!token) {
+		return next(new AppError("Please log in to access this route", 401));
+	}
 
-  // 4) Grant access to protected route
-  req.user = currentUser;
-  next();
+	try {
+		// Verify token
+		const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+		// Check if user exists
+		const user = await User.findById(decoded.id);
+		if (!user) {
+			return next(new AppError("User no longer exists", 401));
+		}
+
+		// Add user to request
+		req.user = user;
+		next();
+	} catch (error) {
+		if (req.path === "/profile") {
+			return next(); // Allow access to /profile without valid token
+		}
+		return next(new AppError("Invalid token", 401));
+	}
 });
 
 // Optional authentication - don't fail if no token
 const optionalAuth = asyncHandler(async (req, res, next) => {
-  let token;
-  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-    token = req.headers.authorization.split(' ')[1];
-    
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const currentUser = await User.findById(decoded.userId);
-      
-      if (currentUser) {
-        req.user = currentUser;
-      }
-    } catch (error) {
-      // Token is invalid but we don't fail the request
-      req.user = null;
-    }
-  }
-  
-  next();
+	let token;
+	if (
+		req.headers.authorization &&
+		req.headers.authorization.startsWith("Bearer")
+	) {
+		token = req.headers.authorization.split(" ")[1];
+
+		try {
+			const decoded = jwt.verify(token, process.env.JWT_SECRET);
+			const currentUser = await User.findById(decoded.userId);
+
+			if (currentUser) {
+				req.user = currentUser;
+			}
+		} catch (error) {
+			// Token is invalid but we don't fail the request
+			req.user = null;
+		}
+	}
+
+	next();
 });
 
 // Restrict to certain roles/conditions
 const restrictTo = (...conditions) => {
-  return (req, res, next) => {
-    // This can be extended for role-based access
-    // For now, we'll just ensure user is authenticated
-    if (!req.user) {
-      return next(new AppError('Access denied. Please log in.', 403));
-    }
-    
-    next();
-  };
+	return (req, res, next) => {
+		// This can be extended for role-based access
+		// For now, we'll just ensure user is authenticated
+		if (!req.user) {
+			return next(new AppError("Access denied. Please log in.", 403));
+		}
+
+		next();
+	};
 };
 
 module.exports = {
-  protect,
-  optionalAuth,
-  restrictTo
+	protect,
+	optionalAuth,
+	restrictTo,
 };

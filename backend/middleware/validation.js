@@ -15,14 +15,26 @@ const validate = (schema, property = 'body') => {
 
 // Common validation schemas
 const schemas = {
-  // User registration
+  // ✅ UPDATED User registration with healthProfile
   registerUser: Joi.object({
     name: Joi.string().min(2).max(50).required(),
     email: Joi.string().email().required(),
-    password: Joi.string().min(8).max(128).required()
+    password: Joi.string().min(6).max(128).required(), // Changed from 8 to 6 to match frontend
+    healthProfile: Joi.object({
+      hasRespiratoryConditions: Joi.boolean().default(false),
+      hasHeartConditions: Joi.boolean().default(false),
+      isPregnant: Joi.boolean().default(false),
+      isSmoker: Joi.boolean().default(false),
+      hasChildren: Joi.boolean().default(false),
+      age: Joi.number().min(1).max(120).allow(null),
+      sensitivityLevel: Joi.string().valid('low', 'medium', 'high').default('medium'),
+      preferredUnits: Joi.string().valid('metric', 'imperial').default('metric'),
+      notificationsEnabled: Joi.boolean().default(true),
+      headsUpAlertsEnabled: Joi.boolean().default(true)
+    }).optional().default({})
   }),
 
-  // this is geoecnogoind schema
+  // Geocoding schema
   geocodeAddress: Joi.object({
     address: Joi.string().min(3).max(200).required()
   }),

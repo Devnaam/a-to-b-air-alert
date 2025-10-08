@@ -114,29 +114,6 @@ export const getDirections = async (origin, destination, alternatives = true) =>
   }
 };
 
-// Get route with air quality analysis - calls YOUR backend
-export const getRouteWithAQI = async (origin, destination, alternatives = true) => {
-  try {
-    console.log('🌬️ Getting route with AQI analysis via backend');
-    
-    const routesResponse = await getDirections(origin, destination, alternatives);
-    
-    // The backend already includes AQI analysis in the routes
-    return routesResponse.map(routeData => ({
-      route: routeData.route,
-      analysis: routeData.analysis || {
-        breathabilityScore: calculateBreathabilityScore([]),
-        healthImpact: { avgAQI: 0, riskLevel: 'unknown' },
-        alerts: [],
-        timeRecommendations: {}
-      }
-    }));
-  } catch (error) {
-    console.error('Route with AQI error:', error);
-    throw error;
-  }
-};
-
 // ========================================
 // AUTHENTICATION API
 // ========================================
@@ -144,7 +121,9 @@ export const getRouteWithAQI = async (origin, destination, alternatives = true) 
 export const authAPI = {
   register: async (userData) => {
     try {
+      console.log('🔄 Registering user with data:', userData);
       const response = await api.post('/auth/register', userData);
+      
       if (response.data.status === 'success' && response.data.data.token) {
         localStorage.setItem('authToken', response.data.data.token);
       }
@@ -157,7 +136,9 @@ export const authAPI = {
 
   login: async (credentials) => {
     try {
+      console.log('🔄 Logging in user:', credentials.email);
       const response = await api.post('/auth/login', credentials);
+      
       if (response.data.status === 'success' && response.data.data.token) {
         localStorage.setItem('authToken', response.data.data.token);
       }
@@ -180,10 +161,20 @@ export const authAPI = {
 
   getProfile: async () => {
     try {
-      const response = await api.get('/auth/profile');
+      const response = await api.get('/auth/me');
       return response.data;
     } catch (error) {
       console.error('Get profile error:', error);
+      throw error;
+    }
+  },
+
+  updateProfile: async (profileData) => {
+    try {
+      const response = await api.put('/auth/profile', profileData);
+      return response.data;
+    } catch (error) {
+      console.error('Update profile error:', error);
       throw error;
     }
   },
@@ -200,7 +191,7 @@ export const authAPI = {
 };
 
 // ========================================
-// ROUTE API (UPDATED WITH REVERSE GEOCODING)
+// ROUTE API
 // ========================================
 
 export const routeAPI = {
@@ -224,7 +215,6 @@ export const routeAPI = {
     }
   },
 
-  // ✅ PROPERLY PLACED REVERSE GEOCODING FUNCTION
   reverseGeocode: async (coordinates) => {
     try {
       console.log('🔄 Calling backend reverse geocode API:', coordinates);
@@ -255,42 +245,57 @@ export const routeAPI = {
       console.error('Route stats error:', error);
       throw error;
     }
-  },
+  }
+};
 
-  // Additional route-related functions
-  analyzeRoute: async (routeData) => {
+// ========================================
+// USER API
+// ========================================
+
+export const userAPI = {
+  getDashboard: async () => {
     try {
-      const response = await api.post('/routes/analyze', routeData);
+      const response = await api.get('/users/dashboard');
       return response.data;
     } catch (error) {
-      console.error('Route analysis error:', error);
+      console.error('Dashboard error:', error);
       throw error;
     }
   },
 
-  getTimeRecommendations: async (routeData) => {
+  updateProfile: async (profileData) => {
     try {
-      const response = await api.post('/routes/time-recommendations', routeData);
+      const response = await api.put('/users/profile', profileData);
       return response.data;
     } catch (error) {
-      console.error('Time recommendations error:', error);
+      console.error('Update profile error:', error);
       throw error;
     }
   },
 
-  getCachedRoute: async (routeHash) => {
+  getPreferences: async () => {
     try {
-      const response = await api.get(`/routes/cached/${routeHash}`);
+      const response = await api.get('/users/preferences');
       return response.data;
     } catch (error) {
-      console.error('Cached route error:', error);
+      console.error('Get preferences error:', error);
+      throw error;
+    }
+  },
+
+  updatePreferences: async (preferences) => {
+    try {
+      const response = await api.put('/users/preferences', { preferences });
+      return response.data;
+    } catch (error) {
+      console.error('Update preferences error:', error);
       throw error;
     }
   }
 };
 
 // ========================================
-// TRIP API (CLEANED UP - REMOVED DUPLICATE)
+// TRIP API
 // ========================================
 
 export const tripAPI = {
@@ -333,232 +338,13 @@ export const tripAPI = {
       console.error('Update trip error:', error);
       throw error;
     }
-  },
-
-  deleteTrip: async (tripId) => {
-    try {
-      const response = await api.delete(`/trips/${tripId}`);
-      return response.data;
-    } catch (error) {
-      console.error('Delete trip error:', error);
-      throw error;
-    }
-  },
-
-  getTripStats: async (period = 'week') => {
-    try {
-      const response = await api.get(`/trips/stats?period=${period}`);
-      return response.data;
-    } catch (error) {
-      console.error('Trip stats error:', error);
-      throw error;
-    }
-  },
-
-  getTripInsights: async () => {
-    try {
-      const response = await api.get('/trips/insights');
-      return response.data;
-    } catch (error) {
-      console.error('Trip insights error:', error);
-      throw error;
-    }
-  },
-
-  shareTrip: async (tripId, shareData) => {
-    try {
-      const response = await api.post(`/trips/${tripId}/share`, shareData);
-      return response.data;
-    } catch (error) {
-      console.error('Share trip error:', error);
-      throw error;
-    }
   }
 };
 
 // ========================================
-// USER API (CLEANED UP - REMOVED DUPLICATE)
+// UTILITY FUNCTIONS
 // ========================================
 
-export const userAPI = {
-  getDashboard: async () => {
-    try {
-      const response = await api.get('/users/dashboard');
-      return response.data;
-    } catch (error) {
-      console.error('Dashboard error:', error);
-      throw error;
-    }
-  },
-
-  updateProfile: async (profileData) => {
-    try {
-      const response = await api.put('/users/profile', profileData);
-      return response.data;
-    } catch (error) {
-      console.error('Update profile error:', error);
-      throw error;
-    }
-  },
-
-  getPreferences: async () => {
-    try {
-      const response = await api.get('/users/preferences');
-      return response.data;
-    } catch (error) {
-      console.error('Get preferences error:', error);
-      throw error;
-    }
-  },
-
-  updatePreferences: async (preferences) => {
-    try {
-      const response = await api.put('/users/preferences', { preferences });
-      return response.data;
-    } catch (error) {
-      console.error('Update preferences error:', error);
-      throw error;
-    }
-  },
-
-  getNotifications: async () => {
-    try {
-      const response = await api.get('/users/notifications');
-      return response.data;
-    } catch (error) {
-      console.error('Get notifications error:', error);
-      throw error;
-    }
-  },
-
-  markNotificationRead: async (notificationId) => {
-    try {
-      const response = await api.put(`/users/notifications/${notificationId}/read`);
-      return response.data;
-    } catch (error) {
-      console.error('Mark notification read error:', error);
-      throw error;
-    }
-  },
-
-  getHealthProfile: async () => {
-    try {
-      const response = await api.get('/users/health-profile');
-      return response.data;
-    } catch (error) {
-      console.error('Get health profile error:', error);
-      throw error;
-    }
-  },
-
-  updateHealthProfile: async (healthData) => {
-    try {
-      const response = await api.put('/users/health-profile', healthData);
-      return response.data;
-    } catch (error) {
-      console.error('Update health profile error:', error);
-      throw error;
-    }
-  }
-};
-
-// ========================================
-// AIR QUALITY API
-// ========================================
-
-export const airQualityAPI = {
-  getCurrentAQI: async (location) => {
-    try {
-      const response = await api.post('/air-quality/current', location);
-      return response.data;
-    } catch (error) {
-      console.error('Get current AQI error:', error);
-      throw error;
-    }
-  },
-
-  getForecast: async (location, hours = 24) => {
-    try {
-      const response = await api.post('/air-quality/forecast', { ...location, hours });
-      return response.data;
-    } catch (error) {
-      console.error('Get AQI forecast error:', error);
-      throw error;
-    }
-  },
-
-  getHistorical: async (location, period = '7d') => {
-    try {
-      const response = await api.post('/air-quality/historical', { ...location, period });
-      return response.data;
-    } catch (error) {
-      console.error('Get historical AQI error:', error);
-      throw error;
-    }
-  },
-
-  getNearbyStations: async (location, radius = 10) => {
-    try {
-      const response = await api.post('/air-quality/stations', { ...location, radius });
-      return response.data;
-    } catch (error) {
-      console.error('Get nearby stations error:', error);
-      throw error;
-    }
-  }
-};
-
-// ========================================
-// ALERTS API
-// ========================================
-
-export const alertsAPI = {
-  getAlerts: async () => {
-    try {
-      const response = await api.get('/alerts');
-      return response.data;
-    } catch (error) {
-      console.error('Get alerts error:', error);
-      throw error;
-    }
-  },
-
-  createAlert: async (alertData) => {
-    try {
-      const response = await api.post('/alerts', alertData);
-      return response.data;
-    } catch (error) {
-      console.error('Create alert error:', error);
-      throw error;
-    }
-  },
-
-  updateAlert: async (alertId, updates) => {
-    try {
-      const response = await api.put(`/alerts/${alertId}`, updates);
-      return response.data;
-    } catch (error) {
-      console.error('Update alert error:', error);
-      throw error;
-    }
-  },
-
-  deleteAlert: async (alertId) => {
-    try {
-      const response = await api.delete(`/alerts/${alertId}`);
-      return response.data;
-    } catch (error) {
-      console.error('Delete alert error:', error);
-      throw error;
-    }
-  }
-};
-
-// ========================================
-// UTILITY FUNCTIONS (Enhanced with better calculations)
-// ========================================
-
-// PRD-Compliant Breathability Score Calculation
 export const calculateBreathabilityScore = (airQualityData) => {
   if (!airQualityData || airQualityData.length === 0) {
     return { score: 50, grade: 'N/A', avgAQI: 0, analysis: 'No data available' };
@@ -610,93 +396,6 @@ export const calculateBreathabilityScore = (airQualityData) => {
     analysis,
     variability: maxAQI - minAQI
   };
-};
-
-// Health impact calculation with enhanced user profile consideration
-export const calculateHealthImpact = (aqiData, userProfile = {}) => {
-  if (!aqiData || aqiData.length === 0) return null;
-  
-  const validData = aqiData.filter(d => d && typeof d.aqi === 'number');
-  if (validData.length === 0) return null;
-  
-  const avgAQI = validData.reduce((sum, d) => sum + d.aqi, 0) / validData.length;
-  const maxAQI = Math.max(...validData.map(d => d.aqi));
-  
-  let riskMultiplier = 1;
-  if (userProfile.hasRespiratoryConditions) riskMultiplier += 0.5;
-  if (userProfile.hasHeartConditions) riskMultiplier += 0.4;
-  if (userProfile.isPregnant) riskMultiplier += 0.3;
-  if (userProfile.age > 65 || userProfile.age < 12) riskMultiplier += 0.2;
-  if (userProfile.isSmoker) riskMultiplier += 0.3;
-  
-  const adjustedAQI = avgAQI * riskMultiplier;
-  
-  let recommendation = 'No special precautions needed';
-  let riskLevel = 'low';
-  let actions = [];
-  
-  if (adjustedAQI > 200) {
-    recommendation = 'Avoid this route if possible, use N95 mask if necessary';
-    riskLevel = 'very-high';
-    actions = ['Wear N95 mask', 'Close all windows', 'Use air purifier after trip', 'Consider postponing trip'];
-  } else if (adjustedAQI > 150) {
-    recommendation = 'Use N95 mask, limit outdoor exposure, consider air purifier post-trip';
-    riskLevel = 'high';
-    actions = ['Wear protective mask', 'Close windows in high AQI areas', 'Limit stops', 'Stay hydrated'];
-  } else if (adjustedAQI > 100) {
-    recommendation = 'Consider face mask, close windows in high AQI areas';
-    riskLevel = 'moderate';
-    actions = ['Consider wearing mask', 'Monitor air quality', 'Close windows when needed'];
-  } else if (adjustedAQI > 50) {
-    recommendation = 'Monitor air quality, stay hydrated';
-    riskLevel = 'low';
-    actions = ['Stay hydrated', 'Monitor air quality updates'];
-  }
-  
-  return {
-    avgAQI: Math.floor(avgAQI),
-    adjustedAQI: Math.floor(adjustedAQI),
-    maxAQI: Math.floor(maxAQI),
-    riskLevel,
-    recommendation,
-    actions,
-    estimatedExposureTime: validData.length * 5, // Rough estimate in minutes
-    personalizedAlert: riskMultiplier > 1 ? `Higher risk due to health profile (${((riskMultiplier - 1) * 100).toFixed(0)}% increase)` : null
-  };
-};
-
-// Enhanced error handling utility
-export const handleAPIError = (error, context = 'API') => {
-  console.error(`${context} Error:`, error);
-  
-  if (error.response) {
-    // Server responded with error status
-    const status = error.response.status;
-    const message = error.response.data?.message || error.message;
-    
-    switch (status) {
-      case 400:
-        return `Bad request: ${message}`;
-      case 401:
-        return 'Authentication required. Please log in.';
-      case 403:
-        return 'Access denied. You do not have permission.';
-      case 404:
-        return 'Resource not found.';
-      case 429:
-        return 'Too many requests. Please try again later.';
-      case 500:
-        return 'Server error. Please try again later.';
-      default:
-        return message || 'An unexpected error occurred.';
-    }
-  } else if (error.request) {
-    // Network error
-    return 'Unable to connect to server. Please check your internet connection.';
-  } else {
-    // Other error
-    return error.message || 'An unexpected error occurred.';
-  }
 };
 
 // Export the main API instance
