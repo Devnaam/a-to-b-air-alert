@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   MapPin, 
   Navigation, 
@@ -7,30 +7,268 @@ import {
   Wind, 
   AlertTriangle,
   Loader,
-  ArrowRight,
-  RefreshCw,
-  Shield,
-  Zap,
-  Leaf
+  Map,
+  Eye,
+  MapPin as LocationIcon
 } from 'lucide-react';
 import { 
   geocodeAddress, 
-  getDirections, 
-  getRouteWithAQI, 
-  calculateBreathabilityScore,
   routeAPI 
 } from '../services/api';
-import { getAQILevel, formatDuration, formatDistance, getHealthRecommendation } from '../utils/airQuality';
+import RouteCards from '../components/RouteCards';
+import RouteMapView from '../components/RouteMapView';
 
 const RoutePlanner = () => {
+  // State management
   const [fromAddress, setFromAddress] = useState('');
   const [toAddress, setToAddress] = useState('');
   const [loading, setLoading] = useState(false);
+  const [geoLoading, setGeoLoading] = useState(false);
   const [routes, setRoutes] = useState([]);
   const [selectedRoute, setSelectedRoute] = useState(null);
   const [error, setError] = useState('');
   const [showTimeIntelligence, setShowTimeIntelligence] = useState(false);
+  const [showMap, setShowMap] = useState(false);
+  const [locationStatus, setLocationStatus] = useState('');
 
+  // Smart reverse geocoding with multiple fallbacks
+  const reverseGeocode = async (lat, lng) => {
+    try {
+      console.log('🔄 Attempting reverse geocoding for:', { lat, lng });
+      
+      // Check if routeAPI.reverseGeocode exists
+      if (typeof routeAPI.reverseGeocode !== 'function') {
+        console.warn('⚠️ routeAPI.reverseGeocode not available, using browser-based geocoding');
+        return await browserReverseGeocode(lat, lng);
+      }
+      
+      const response = await routeAPI.reverseGeocode({ 
+        lat: parseFloat(lat), 
+        lng: parseFloat(lng) 
+      });
+      
+      console.log('✅ Backend reverse geocode response:', response);
+      
+      if (response.status === 'success' && response.data && response.data.address) {
+        const exactAddress = response.data.address;
+        console.log('✅ Exact address found:', exactAddress);
+        return exactAddress;
+      } else {
+        throw new Error('No address found in backend response');
+      }
+    } catch (error) {
+      console.error('❌ Backend reverse geocoding failed:', error);
+      
+      // Fallback to browser-based geocoding
+      try {
+        return await browserReverseGeocode(lat, lng);
+      } catch (fallbackError) {
+        console.error('❌ All reverse geocoding methods failed:', fallbackError);
+        
+        // Final fallback to smart coordinate display
+        return getSmartCoordinateDisplay(lat, lng);
+      }
+    }
+  };
+
+  // Browser-based reverse geocoding using Google Maps (if loaded)
+  const browserReverseGeocode = async (lat, lng) => {
+    return new Promise((resolve, reject) => {
+      if (!window.google || !window.google.maps) {
+        reject(new Error('Google Maps not loaded'));
+        return;
+      }
+
+      const geocoder = new window.google.maps.Geocoder();
+      const latlng = { lat: parseFloat(lat), lng: parseFloat(lng) };
+
+      geocoder.geocode({ location: latlng }, (results, status) => {
+        if (status === 'OK' && results[0]) {
+          console.log('✅ Browser reverse geocoding successful:', results[0].formatted_address);
+          resolve(results[0].formatted_address);
+        } else {
+          reject(new Error('Browser geocoding failed: ' + status));
+        }
+      });
+    });
+  };
+
+  // Smart coordinate display with location hints
+  const getSmartCoordinateDisplay = (lat, lng) => {
+    const latitude = parseFloat(lat);
+    const longitude = parseFloat(lng);
+    
+    // Add location hints based on coordinates
+    let locationHint = '';
+    
+    // India bounds check with detailed regions
+    if (latitude >= 6.0 && latitude <= 37.6 && longitude >= 68.7 && longitude <= 97.25) {
+      // Major cities detection with tighter bounds
+      if (latitude >= 28.40 && latitude <= 28.88 && longitude >= 76.80 && longitude <= 77.50) {
+        locationHint = ' (New Delhi area)';
+      } else if (latitude >= 19.00 && latitude <= 19.30 && longitude >= 72.70 && longitude <= 73.00) {
+        locationHint = ' (Mumbai area)';
+      } else if (latitude >= 12.80 && latitude <= 13.20 && longitude >= 77.40 && longitude <= 77.80) {
+        locationHint = ' (Bangalore area)';
+      } else if (latitude >= 13.00 && latitude <= 13.30 && longitude >= 80.10 && longitude <= 80.40) {
+        locationHint = ' (Chennai area)'; // This should match your location
+      } else if (latitude >= 17.20 && latitude <= 17.60 && longitude >= 78.20 && longitude <= 78.70) {
+        locationHint = ' (Hyderabad area)';
+      } else if (latitude >= 22.40 && latitude <= 22.80 && longitude >= 88.20 && longitude <= 88.50) {
+        locationHint = ' (Kolkata area)';
+      } else if (latitude >= 18.40 && latitude <= 18.80 && longitude >= 73.70 && longitude <= 74.20) {
+        locationHint = ' (Pune area)';
+      } else {
+        // State-level detection
+        if (latitude >= 8.0 && latitude <= 12.8 && longitude >= 74.8 && longitude <= 78.0) {
+          locationHint = ' (Kerala/Karnataka)';
+        } else if (latitude >= 10.0 && latitude <= 16.0 && longitude >= 78.0 && longitude <= 84.0) {
+          locationHint = ' (Tamil Nadu/Andhra Pradesh)';
+        } else if (latitude >= 15.0 && latitude <= 22.0 && longitude >= 72.0 && longitude <= 80.0) {
+          locationHint = ' (Maharashtra/Madhya Pradesh)';
+        } else {
+          locationHint = ' (India)';
+        }
+      }
+    } else {
+      locationHint = '';
+    }
+
+    return `${latitude.toFixed(6)}, ${longitude.toFixed(6)}${locationHint}`;
+  };
+
+  // Enhanced current location with high accuracy and multiple attempts
+  const handleUseCurrentLocation = async () => {
+    if (!navigator.geolocation) {
+      setError('Geolocation is not supported by this browser');
+      return;
+    }
+
+    setGeoLoading(true);
+    setError('');
+    setLocationStatus('Getting your location...');
+    
+    // Enhanced geolocation options
+    const options = {
+      enableHighAccuracy: true,
+      timeout: 20000, // 20 seconds
+      maximumAge: 60000 // 1 minute cache
+    };
+
+    // Try high accuracy first
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude, accuracy } = position.coords;
+        console.log('📍 Got location:', { 
+          latitude, 
+          longitude, 
+          accuracy: `${accuracy}m`,
+          timestamp: new Date(position.timestamp).toLocaleTimeString()
+        });
+        
+        setLocationStatus(`Location found (accuracy: ${Math.round(accuracy)}m)`);
+        
+        try {
+          // Show coordinates immediately for quick feedback
+          const coordDisplay = getSmartCoordinateDisplay(latitude, longitude);
+          setFromAddress(coordDisplay);
+          setLocationStatus('Getting exact address...');
+          
+          // Then try to get the exact address
+          const exactAddress = await reverseGeocode(latitude, longitude);
+          
+          // Update with the real address
+          setFromAddress(exactAddress);
+          setError('');
+          setLocationStatus('');
+          
+          console.log('✅ Current location set successfully:', exactAddress);
+        } catch (error) {
+          console.error('❌ Address lookup failed:', error);
+          // Keep the smart coordinate display
+          const coordDisplay = getSmartCoordinateDisplay(latitude, longitude);
+          setFromAddress(coordDisplay);
+          setLocationStatus('Using coordinates (address lookup failed)');
+          
+          // Clear status after 3 seconds
+          setTimeout(() => setLocationStatus(''), 3000);
+        } finally {
+          setGeoLoading(false);
+        }
+      },
+      async (error) => {
+        console.error('❌ High accuracy geolocation failed:', error);
+        
+        // Try again with lower accuracy as fallback
+        setLocationStatus('High accuracy failed, trying standard GPS...');
+        
+        navigator.geolocation.getCurrentPosition(
+          async (position) => {
+            const { latitude, longitude, accuracy } = position.coords;
+            console.log('📍 Got location (standard accuracy):', { 
+              latitude, 
+              longitude, 
+              accuracy: `${accuracy}m`
+            });
+            
+            setLocationStatus(`Location found (accuracy: ${Math.round(accuracy)}m)`);
+            
+            try {
+              const coordDisplay = getSmartCoordinateDisplay(latitude, longitude);
+              setFromAddress(coordDisplay);
+              setLocationStatus('Getting exact address...');
+              
+              const exactAddress = await reverseGeocode(latitude, longitude);
+              setFromAddress(exactAddress);
+              setError('');
+              setLocationStatus('');
+              
+              console.log('✅ Current location set (standard accuracy):', exactAddress);
+            } catch (addrError) {
+              const coordDisplay = getSmartCoordinateDisplay(latitude, longitude);
+              setFromAddress(coordDisplay);
+              setLocationStatus('Using coordinates (address lookup failed)');
+              setTimeout(() => setLocationStatus(''), 3000);
+            } finally {
+              setGeoLoading(false);
+            }
+          },
+          (fallbackError) => {
+            console.error('❌ All geolocation attempts failed:', fallbackError);
+            
+            let errorMessage = 'Unable to get your current location.';
+            
+            switch(fallbackError.code) {
+              case fallbackError.PERMISSION_DENIED:
+                errorMessage = 'Location access denied. Please enable location permissions in your browser settings and try again.';
+                break;
+              case fallbackError.POSITION_UNAVAILABLE:
+                errorMessage = 'Location information is unavailable. Please check your GPS, WiFi, or mobile data connection.';
+                break;
+              case fallbackError.TIMEOUT:
+                errorMessage = 'Location request timed out. Please try again or enter your address manually.';
+                break;
+              default:
+                errorMessage = 'An unexpected error occurred while getting your location. Please try again.';
+                break;
+            }
+            
+            setError(errorMessage);
+            setLocationStatus('');
+            setGeoLoading(false);
+          },
+          {
+            enableHighAccuracy: false, // Lower accuracy for fallback
+            timeout: 15000,
+            maximumAge: 300000 // 5 minutes cache
+          }
+        );
+      },
+      options
+    );
+  };
+
+  // Route planning function (unchanged)
   const handlePlanRoute = async () => {
     if (!fromAddress.trim() || !toAddress.trim()) {
       setError('Please enter both origin and destination addresses');
@@ -40,12 +278,12 @@ const RoutePlanner = () => {
     setLoading(true);
     setError('');
     setRoutes([]);
+    setSelectedRoute(null);
     console.log('🚀 Starting route planning...');
 
     try {
       console.log('🔍 Step 1: Geocoding addresses...');
       
-      // Geocode addresses using backend
       const [fromLocation, toLocation] = await Promise.all([
         geocodeAddress(fromAddress.trim()),
         geocodeAddress(toAddress.trim())
@@ -53,7 +291,6 @@ const RoutePlanner = () => {
 
       console.log('✅ Geocoding successful:', { fromLocation, toLocation });
 
-      // Prepare route request data
       const routeRequest = {
         origin: {
           lat: fromLocation.location.lat,
@@ -70,7 +307,6 @@ const RoutePlanner = () => {
 
       console.log('🗺️ Step 2: Planning routes with AQI analysis...');
       
-      // Get routes with AQI analysis from backend
       const routeResponse = await routeAPI.planRoute(routeRequest);
       
       if (!routeResponse.data || !routeResponse.data.routes || routeResponse.data.routes.length === 0) {
@@ -84,16 +320,17 @@ const RoutePlanner = () => {
         const route = routeData.route;
         const analysis = routeData.analysis || {};
         
-        // Extract route metrics
         const duration = route.legs?.[0]?.duration?.value || 0;
         const distance = route.legs?.[0]?.distance?.value || 0;
         const summary = route.summary || `Route ${index + 1}`;
 
-        // Get breathability score from analysis or calculate default
-        const breathability = analysis.breathabilityScore || 
-          calculateBreathabilityScore(analysis.airQualityData || []);
+        const breathability = analysis.breathabilityScore || {
+          score: 50,
+          grade: 'N/A',
+          avgAQI: 50,
+          analysis: 'No air quality data available'
+        };
 
-        // Extract air quality data
         const airQualityData = analysis.airQualityData || [];
 
         return {
@@ -105,8 +342,8 @@ const RoutePlanner = () => {
           duration: duration,
           distance: distance,
           summary: summary,
-          isFastest: index === 0, // First route is typically fastest
-          isHealthiest: false, // Will be determined below
+          isFastest: index === 0,
+          isHealthiest: false,
           routeType: index === 0 ? 'fastest' : 'alternative',
           healthImpact: analysis.healthImpact || {
             avgAQI: breathability.avgAQI || 0,
@@ -116,7 +353,7 @@ const RoutePlanner = () => {
       });
 
       // Determine healthiest route
-      if (processedRoutes.length > 0) {
+      if (processedRoutes.length > 1) {
         const healthiestRoute = processedRoutes.reduce((best, current) => 
           (best.breathability.score < current.breathability.score) ? current : best
         );
@@ -124,7 +361,6 @@ const RoutePlanner = () => {
         healthiestRoute.isHealthiest = true;
         healthiestRoute.routeType = 'healthiest';
 
-        // Show time intelligence if air quality is poor
         if (healthiestRoute.breathability.avgAQI > 150) {
           setShowTimeIntelligence(true);
         }
@@ -134,11 +370,11 @@ const RoutePlanner = () => {
 
       setRoutes(processedRoutes);
       setSelectedRoute(processedRoutes[0]);
+      setShowMap(true); // Show map after successful route planning
       
     } catch (err) {
       console.error('❌ Route planning error:', err);
       
-      // User-friendly error messages
       let errorMessage = 'Failed to plan route. Please try again.';
       
       if (err.message.includes('Location not found')) {
@@ -157,49 +393,9 @@ const RoutePlanner = () => {
     }
   };
 
-  const handleUseCurrentLocation = () => {
-    if (navigator.geolocation) {
-      setLoading(true);
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const { latitude, longitude } = position.coords;
-          try {
-            console.log('📍 Got current location:', { latitude, longitude });
-            // You could reverse geocode here to get a readable address
-            setFromAddress(`${latitude}, ${longitude}`);
-            setError('');
-          } catch (error) {
-            console.error('Current location error:', error);
-            setFromAddress(`${latitude}, ${longitude}`);
-          } finally {
-            setLoading(false);
-          }
-        },
-        (error) => {
-          console.error('Geolocation error:', error);
-          setError('Unable to get current location. Please check location permissions.');
-          setLoading(false);
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 300000 // 5 minutes
-        }
-      );
-    } else {
-      setError('Geolocation is not supported by this browser');
-    }
-  };
-
   const handleSelectRoute = (routeData) => {
     console.log('📍 Route selected:', routeData);
     setSelectedRoute(routeData);
-  };
-
-  const handleStartNavigation = (routeData) => {
-    console.log('🧭 Starting navigation for route:', routeData);
-    // Here you would typically navigate to a navigation page
-    // or trigger navigation functionality
   };
 
   return (
@@ -213,9 +409,10 @@ const RoutePlanner = () => {
           </p>
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-8">
-          {/* Route Input Form */}
-          <div className="lg:col-span-1">
+        <div className="grid lg:grid-cols-2 gap-8">
+          {/* Left Column: Route Input + Route Cards */}
+          <div className="space-y-6">
+            {/* Route Input Form */}
             <div className="card">
               <h2 className="text-lg font-semibold text-[#333333] mb-4">Route Details</h2>
               
@@ -233,15 +430,25 @@ const RoutePlanner = () => {
                       onChange={(e) => setFromAddress(e.target.value)}
                       placeholder="Enter starting location"
                       className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#4A90E2] focus:border-[#4A90E2] outline-none transition-all"
-                      disabled={loading}
+                      disabled={loading || geoLoading}
                     />
                   </div>
                   <button
                     onClick={handleUseCurrentLocation}
-                    disabled={loading}
-                    className="mt-2 text-sm text-[#4A90E2] hover:text-[#357ABD] disabled:text-gray-400 transition-colors"
+                    disabled={loading || geoLoading}
+                    className="mt-2 text-sm text-[#4A90E2] hover:text-[#357ABD] disabled:text-gray-400 transition-colors flex items-center space-x-1"
                   >
-                    {loading ? 'Getting location...' : 'Use current location'}
+                    {geoLoading ? (
+                      <>
+                        <Loader className="w-3 h-3 animate-spin" />
+                        <span>Getting precise location...</span>
+                      </>
+                    ) : (
+                      <>
+                        <LocationIcon className="w-3 h-3" />
+                        <span>Use current location</span>
+                      </>
+                    )}
                   </button>
                 </div>
 
@@ -287,6 +494,36 @@ const RoutePlanner = () => {
                   )}
                 </button>
 
+                {/* Map Toggle Button */}
+                {routes.length > 0 && (
+                  <button
+                    onClick={() => setShowMap(!showMap)}
+                    className="w-full btn-secondary flex items-center justify-center space-x-2 text-sm"
+                  >
+                    {showMap ? (
+                      <>
+                        <Eye className="w-4 h-4" />
+                        <span>Hide Map</span>
+                      </>
+                    ) : (
+                      <>
+                        <Map className="w-4 h-4" />
+                        <span>Show Map</span>
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {/* Location Status */}
+                {locationStatus && (
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center space-x-2 text-blue-800">
+                      <Loader className="w-4 h-4 animate-spin" />
+                      <span className="text-sm">{locationStatus}</span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Error Message */}
                 {error && (
                   <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -313,7 +550,7 @@ const RoutePlanner = () => {
 
             {/* Time Intelligence Suggestion */}
             {showTimeIntelligence && (
-              <div className="card mt-6 border-l-4 border-[#50E3C2]">
+              <div className="card border-l-4 border-[#50E3C2]">
                 <div className="flex items-start space-x-3">
                   <Clock className="w-5 h-5 text-[#50E3C2] mt-1" />
                   <div>
@@ -328,246 +565,26 @@ const RoutePlanner = () => {
                 </div>
               </div>
             )}
+
+            {/* Route Cards Component */}
+            <RouteCards
+              routes={routes}
+              selectedRoute={selectedRoute}
+              onSelectRoute={handleSelectRoute}
+              loading={loading}
+            />
           </div>
 
-          {/* Route Results */}
-          <div className="lg:col-span-2">
-            {routes.length > 0 && (
-              <div className="space-y-6">
-                {/* Route Comparison Cards */}
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold text-[#333333]">Route Options</h2>
-                    <div className="text-sm text-gray-600">
-                      {routes.length} route{routes.length > 1 ? 's' : ''} found
-                    </div>
-                  </div>
-                  
-                  <div className="grid gap-4">
-                    {routes.map((routeData) => {
-                      const aqiLevel = getAQILevel(routeData.breathability.avgAQI || 0);
-                      
-                      return (
-                        <div
-                          key={routeData.id}
-                          onClick={() => handleSelectRoute(routeData)}
-                          className={`card cursor-pointer transition-all hover:shadow-lg transform hover:-translate-y-1 ${
-                            selectedRoute?.id === routeData.id 
-                              ? 'ring-2 ring-[#4A90E2] border-[#4A90E2] shadow-lg' 
-                              : 'hover:border-gray-300'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-4">
-                            <div className="flex items-center space-x-3">
-                              <div className="flex items-center space-x-2">
-                                {routeData.isFastest && (
-                                  <div className="flex items-center space-x-1">
-                                    <Zap className="w-4 h-4 text-[#4A90E2]" />
-                                    <span className="text-sm font-medium text-[#4A90E2]">Fastest Route</span>
-                                  </div>
-                                )}
-                                {routeData.isHealthiest && (
-                                  <div className="flex items-center space-x-1">
-                                    <Leaf className="w-4 h-4 text-[#50E3C2]" />
-                                    <span className="text-sm font-medium text-[#50E3C2]">Healthiest Route</span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            
-                            <div className="text-right">
-                              <div className="text-2xl font-bold text-[#333333]">
-                                {routeData.breathability.grade || 'N/A'}
-                              </div>
-                              <div className="text-sm text-gray-600">Breathability</div>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                            {/* Duration */}
-                            <div className="flex items-center space-x-2">
-                              <Clock className="w-4 h-4 text-gray-400" />
-                              <div>
-                                <div className="text-sm font-medium text-[#333333]">
-                                  {formatDuration(routeData.duration)}
-                                </div>
-                                <div className="text-xs text-gray-500">Duration</div>
-                              </div>
-                            </div>
-
-                            {/* Distance */}
-                            <div className="flex items-center space-x-2">
-                              <RouteIcon className="w-4 h-4 text-gray-400" />
-                              <div>
-                                <div className="text-sm font-medium text-[#333333]">
-                                  {formatDistance(routeData.distance)}
-                                </div>
-                                <div className="text-xs text-gray-500">Distance</div>
-                              </div>
-                            </div>
-
-                            {/* Score */}
-                            <div className="flex items-center space-x-2">
-                              <Wind className="w-4 h-4 text-gray-400" />
-                              <div>
-                                <div className="text-sm font-medium text-[#333333]">
-                                  {routeData.breathability.score || 0}/100
-                                </div>
-                                <div className="text-xs text-gray-500">Score</div>
-                              </div>
-                            </div>
-
-                            {/* AQI */}
-                            <div className="flex items-center space-x-2">
-                              <div 
-                                className="w-3 h-3 rounded-full"
-                                style={{ backgroundColor: aqiLevel.color }}
-                              ></div>
-                              <div>
-                                <div className="text-sm font-medium text-[#333333]">
-                                  {routeData.breathability.avgAQI || 0}
-                                </div>
-                                <div className="text-xs text-gray-500">Avg AQI</div>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Route Path Preview */}
-                          <div className="flex items-center space-x-1 mb-3">
-                            <span className="text-xs text-gray-600">Route:</span>
-                            <span className="text-xs text-[#333333] truncate">{routeData.summary}</span>
-                          </div>
-
-                          {/* Breathability Analysis */}
-                          {routeData.breathability.analysis && (
-                            <div className="mb-3 p-2 bg-gray-50 rounded text-xs text-gray-600">
-                              {routeData.breathability.analysis}
-                            </div>
-                          )}
-
-                          {/* Action Buttons */}
-                          <div className="flex space-x-2">
-                            {routeData.isHealthiest && (
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleStartNavigation(routeData);
-                                }}
-                                className="btn-accent flex-1 text-sm py-2"
-                              >
-                                <div className="flex items-center justify-center space-x-1">
-                                  <Shield className="w-3 h-3" />
-                                  <span>Choose Healthiest</span>
-                                </div>
-                              </button>
-                            )}
-                            {routeData.isFastest && (
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleStartNavigation(routeData);
-                                }}
-                                className="btn-primary flex-1 text-sm py-2"
-                              >
-                                <div className="flex items-center justify-center space-x-1">
-                                  <Zap className="w-3 h-3" />
-                                  <span>Choose Fastest</span>
-                                </div>
-                              </button>
-                            )}
-                            {!routeData.isFastest && !routeData.isHealthiest && (
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleStartNavigation(routeData);
-                                }}
-                                className="btn-secondary flex-1 text-sm py-2"
-                              >
-                                <div className="flex items-center justify-center space-x-1">
-                                  <ArrowRight className="w-3 h-3" />
-                                  <span>Select Route</span>
-                                </div>
-                              </button>
-                            )}
-                          </div>
-
-                          {/* Healthiest Route Suggestion */}
-                          {routeData.isFastest && !routeData.isHealthiest && routes.find(r => r.isHealthiest) && (
-                            <div className="mt-3 p-3 bg-[#50E3C2] bg-opacity-10 border border-[#50E3C2] rounded-lg">
-                              <div className="flex items-center space-x-2">
-                                <Leaf className="w-4 h-4 text-[#50E3C2]" />
-                                <div className="text-sm">
-                                  <span className="font-medium text-[#333333]">Healthier Route Available!</span>
-                                  <div className="text-[#50E3C2] font-medium">
-                                    +{formatDuration(routes.find(r => r.isHealthiest).duration - routeData.duration)} • 
-                                    -{routeData.breathability.avgAQI - routes.find(r => r.isHealthiest).breathability.avgAQI} AQI Points
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Route Recommendation Summary */}
-                {routes.length > 1 && (
-                  <div className="card bg-gradient-to-r from-[#4A90E2] to-[#50E3C2] text-white">
-                    <h3 className="font-semibold mb-2">Route Recommendation</h3>
-                    <p className="text-sm opacity-90 mb-3">
-                      Based on current conditions, we recommend the {' '}
-                      {routes.find(r => r.isHealthiest)?.breathability.avgAQI < 100 ? 'healthiest' : 'fastest'} route 
-                      for your journey.
-                    </p>
-                    <button 
-                      onClick={() => handleSelectRoute(routes.find(r => r.isHealthiest) || routes[0])}
-                      className="text-sm bg-white bg-opacity-20 hover:bg-opacity-30 px-3 py-1 rounded transition-colors"
-                    >
-                      Accept Recommendation
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Loading State */}
-            {loading && (
-              <div className="card text-center py-12">
-                <Loader className="w-8 h-8 text-[#4A90E2] mx-auto mb-4 animate-spin" />
-                <h3 className="text-lg font-medium text-[#333333] mb-2">Planning Your Route</h3>
-                <p className="text-gray-600">
-                  Analyzing air quality along multiple routes...
-                </p>
-              </div>
-            )}
-
-            {/* No Results State */}
-            {!loading && routes.length === 0 && !error && (
-              <div className="card text-center py-12">
-                <RouteIcon className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-[#333333] mb-2">Plan Your First Route</h3>
-                <p className="text-gray-600 mb-4">
-                  Enter your starting point and destination to see route options with air quality information
-                </p>
-                <div className="flex justify-center space-x-4 text-sm text-gray-500">
-                  <div className="flex items-center space-x-1">
-                    <Wind className="w-4 h-4" />
-                    <span>Real-time AQI</span>
-                  </div>
-                  <div className="flex items-center space-x-1">
-                    <Shield className="w-4 h-4" />
-                    <span>Health Analysis</span>
-                  </div>
-                  <div className="flex items-center space-x-1">
-                    <Clock className="w-4 h-4" />
-                    <span>Time Intelligence</span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          {/* Right Column: Map View */}
+          {showMap && routes.length > 0 && (
+            <RouteMapView
+              routes={routes}
+              selectedRoute={selectedRoute}
+              fromAddress={fromAddress}
+              toAddress={toAddress}
+              onSelectRoute={handleSelectRoute}
+            />
+          )}
         </div>
       </div>
     </div>

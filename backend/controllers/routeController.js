@@ -209,6 +209,34 @@ exports.getTimeRecommendations = asyncHandler(async (req, res) => {
   }
 });
 
+// Add this to your routeController.js exports
+// Make sure this function exists in your routeController.js
+exports.reverseGeocode = asyncHandler(async (req, res) => {
+  try {
+    const { lat, lng } = req.body;
+    
+    if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
+      throw new AppError('Valid latitude and longitude are required', 400);
+    }
+
+    console.log(`🔄 Reverse geocoding coordinates: ${lat}, ${lng}`);
+    
+    const result = await mapsService.reverseGeocode(parseFloat(lat), parseFloat(lng));
+    
+    console.log('✅ Reverse geocoding result:', result);
+    
+    res.status(200).json({
+      status: 'success',
+      data: result
+    });
+  } catch (error) {
+    logger.error('Reverse geocoding controller error:', error);
+    throw error;
+  }
+});
+
+
+
 // Get route statistics
 exports.getRouteStats = asyncHandler(async (req, res) => {
   const stats = await Route.getStats();

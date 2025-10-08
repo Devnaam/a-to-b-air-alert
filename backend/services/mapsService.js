@@ -53,6 +53,41 @@ class MapsService {
       throw error;
     }
   }
+  // Add this method to your MapsService class if it's missing:
+async reverseGeocode(lat, lng) {
+  try {
+    if (!this.googleApiKey || this.googleApiKey === 'your_google_maps_api_key_here_optional') {
+      throw new Error('Google Maps API key not configured');
+    }
+
+    const response = await this.client.get('/geocode/json', {
+      params: {
+        latlng: `${lat},${lng}`,
+        key: this.googleApiKey,
+        language: 'en'
+      }
+    });
+
+    if (response.data.status === 'OK' && response.data.results.length > 0) {
+      const result = response.data.results[0];
+      return {
+        address: result.formatted_address,
+        components: result.address_components,
+        types: result.types
+      };
+    }
+    
+    throw new Error('Address not found');
+  } catch (error) {
+    logger.error('Reverse geocoding error:', error.message);
+    return {
+      address: `${lat}, ${lng}`,
+      components: [],
+      types: ['approximate']
+    };
+  }
+}
+
 
   // Get directions between two points
   async getDirections(origin, destination, options = {}) {
@@ -281,39 +316,48 @@ class MapsService {
   }
 
   // Reverse geocode coordinates to address
-  async reverseGeocode(lat, lng) {
-    try {
-      if (!this.googleApiKey || this.googleApiKey === 'your_google_maps_api_key_here_optional') {
-        throw new Error('Google Maps API key not configured');
-      }
-
-      const response = await this.client.get('/geocode/json', {
-        params: {
-          latlng: `${lat},${lng}`,
-          key: this.googleApiKey,
-          language: 'en'
-        }
-      });
-
-      if (response.data.status === 'OK' && response.data.results.length > 0) {
-        const result = response.data.results[0];
-        return {
-          address: result.formatted_address,
-          components: result.address_components,
-          types: result.types
-        };
-      }
-      
-      throw new Error('Address not found');
-    } catch (error) {
-      logger.error('Reverse geocoding error:', error.message);
-      return {
-        address: `${lat}, ${lng}`,
-        components: [],
-        types: ['approximate']
-      };
+  // Update the reverseGeocode method in your MapsService class
+async reverseGeocode(lat, lng) {
+  try {
+    if (!this.googleApiKey || this.googleApiKey === 'your_google_maps_api_key_here_optional') {
+      throw new Error('Google Maps API key not configured');
     }
+
+    console.log(`🔄 Google Maps reverse geocoding: ${lat}, ${lng}`);
+    
+    const response = await this.client.get('/geocode/json', {
+      params: {
+        latlng: `${lat},${lng}`,
+        key: this.googleApiKey,
+        language: 'en'
+      }
+    });
+
+    console.log('Google reverse geocode status:', response.data.status);
+
+    if (response.data.status === 'OK' && response.data.results.length > 0) {
+      // Get the most specific address (usually the first result)
+      const result = response.data.results[0];
+      console.log('✅ Exact address found:', result.formatted_address);
+      
+      return {
+        address: result.formatted_address,
+        components: result.address_components || [],
+        types: result.types || [],
+        placeId: result.place_id,
+        geometry: result.geometry
+      };
+    } else {
+      throw new Error(`Geocoding failed: ${response.data.status}`);
+    }
+  } catch (error) {
+    console.error('Google reverse geocoding error:', error);
+    throw new Error('Unable to determine location address');
   }
 }
+
+}
+
+
 
 module.exports = new MapsService();

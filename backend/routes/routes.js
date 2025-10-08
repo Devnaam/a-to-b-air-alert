@@ -12,13 +12,13 @@ router.post('/plan',
   routeController.planRoute
 );
 
-// Fix: Geocode endpoint - expects address, not coordinates
+// Geocode endpoint - expects address, not coordinates
 router.post('/geocode', 
   validate(schemas.geocodeAddress),  // Use correct schema
   routeController.geocode
 );
 
-// Fix: Reverse geocode endpoint - expects coordinates
+// Reverse geocode endpoint - expects coordinates
 router.post('/reverse-geocode',
   validate(schemas.coordinates),  // This one is correct
   routeController.reverseGeocode
