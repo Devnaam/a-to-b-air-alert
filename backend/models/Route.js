@@ -110,27 +110,40 @@ class Route {
 
   // Get popular routes
   static async getPopular(limit = 10) {
-    const routes = await db('routes')
-      .select([
-        'id',
-        'origin_lat',
-        'origin_lng', 
-        'destination_lat',
-        'destination_lng',
-        'distance_meters',
-        'duration_seconds',
-        'breathability_score',
-        'usage_count',
-        'updated_at'
-      ])
-      .orderBy('usage_count', 'desc')
-      .limit(limit);
+  const routes = await db('routes')
+    .select([
+      'id',
+      'origin_lat',
+      'origin_lng', 
+      'destination_lat',
+      'destination_lng',
+      'distance_meters',
+      'duration_seconds',
+      'breathability_score',
+      'usage_count',
+      'updated_at'
+    ])
+    .orderBy('usage_count', 'desc')
+    .limit(limit);
 
-    return routes.map(route => ({
+  return routes.map(route => {
+    // Safely parse JSON fields
+    let breathability_score = {};
+    try {
+      breathability_score = typeof route.breathability_score === 'string' 
+        ? JSON.parse(route.breathability_score) 
+        : route.breathability_score || {};
+    } catch (error) {
+      console.warn('JSON parse error for breathability_score:', error);
+      breathability_score = {};
+    }
+
+    return {
       ...route,
-      breathability_score: JSON.parse(route.breathability_score || '{}')
-    }));
-  }
+      breathability_score
+    };
+  });
+}
 
   // Clean old routes (remove unused routes older than 30 days)
   static async cleanOldRoutes() {

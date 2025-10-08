@@ -15,7 +15,7 @@ class MapsService {
   // Geocode an address to coordinates
   async geocode(address) {
     try {
-      if (!this.googleApiKey) {
+      if (!this.googleApiKey || this.googleApiKey === 'your_google_maps_api_key_here_optional') {
         throw new Error('Google Maps API key not configured');
       }
 
@@ -42,6 +42,9 @@ class MapsService {
         };
       } else if (response.data.status === 'ZERO_RESULTS') {
         throw new Error('Location not found. Please try a more specific address.');
+      } else if (response.data.status === 'REQUEST_DENIED') {
+        logger.error('Google Maps API request denied. Check API key and restrictions.');
+        throw new Error('Geocoding service unavailable. Please try again later.');
       } else {
         throw new Error(`Geocoding failed: ${response.data.status}`);
       }
@@ -54,8 +57,9 @@ class MapsService {
   // Get directions between two points
   async getDirections(origin, destination, options = {}) {
     try {
-      if (!this.googleApiKey) {
-        throw new Error('Google Maps API key not configured');
+      if (!this.googleApiKey || this.googleApiKey === 'your_google_maps_api_key_here_optional') {
+        console.log('Using mock directions - Google Maps API key not configured');
+        return this.generateMockDirections(origin, destination, options.alternatives);
       }
 
       const {
@@ -86,16 +90,28 @@ class MapsService {
       const response = await this.client.get('/directions/json', { params });
 
       if (response.data.status === 'OK' && response.data.routes.length > 0) {
+        logger.info(`✅ Google Maps Directions API: Found ${response.data.routes.length} routes`);
         return response.data.routes.map(route => ({
           ...route,
           routeId: this.generateRouteHash(origin, destination, route)
         }));
       } else if (response.data.status === 'ZERO_RESULTS') {
         throw new Error('No routes found between these locations.');
+      } else if (response.data.status === 'REQUEST_DENIED') {
+        logger.error('Google Maps API request denied for directions. Check API key and restrictions.');
+        throw new Error('Route planning service unavailable. Please try again later.');
+      } else if (response.data.status === 'OVER_QUERY_LIMIT') {
+        logger.error('Google Maps API quota exceeded');
+        throw new Error('Service temporarily unavailable due to high demand. Please try again later.');
       } else {
-        throw new Error(`Directions failed: ${response.data.status}`);
+        logger.warn(`Google Maps API status: ${response.data.status}, falling back to mock data`);
+        return this.generateMockDirections(origin, destination, alternatives);
       }
     } catch (error) {
+      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+        logger.error('Google Maps API connection failed, using mock data');
+        return this.generateMockDirections(origin, destination, options.alternatives);
+      }
       logger.error('Directions error:', error.message);
       throw error;
     }
@@ -104,12 +120,12 @@ class MapsService {
   // Generate a hash for route caching
   generateRouteHash(origin, destination, route) {
     const crypto = require('crypto');
-    const routeString = `${origin.lat},${origin.lng}-${destination.lat},${destination.lng}-${route.summary}`;
+    const routeString = `${origin.lat},${origin.lng}-${destination.lat},${destination.lng}-${route.summary || 'route'}`;
     return crypto.createHash('sha256').update(routeString).digest('hex').substring(0, 16);
   }
 
   // Get route coordinates for air quality sampling
-  getRouteCoordinates(route, maxPoints = 10) {
+  getRouteCoordinates(route, maxPoints = 8) {
     try {
       if (!route.legs || route.legs.length === 0) {
         return [];
@@ -128,10 +144,12 @@ class MapsService {
       const sampleInterval = Math.max(1, Math.floor(steps.length / (maxPoints - 2)));
       
       for (let i = sampleInterval; i < steps.length; i += sampleInterval) {
-        coordinates.push({
-          lat: steps[i].start_location.lat,
-          lng: steps[i].start_location.lng
-        });
+        if (coordinates.length < maxPoints - 1) { // Leave room for end point
+          coordinates.push({
+            lat: steps[i].start_location.lat,
+            lng: steps[i].start_location.lng
+          });
+        }
       }
 
       // Add end point
@@ -141,6 +159,7 @@ class MapsService {
         lng: lastStep.end_location.lng
       });
 
+      logger.info(`✅ Extracted ${coordinates.length} coordinates from route for AQI analysis`);
       return coordinates;
     } catch (error) {
       logger.error('Error extracting route coordinates:', error);
@@ -150,6 +169,7 @@ class MapsService {
 
   // Generate mock directions for development/fallback
   generateMockDirections(origin, destination, alternatives = true) {
+    logger.info('🔄 Generating mock directions as fallback');
     const distance = calculateDistance(origin.lat, origin.lng, destination.lat, destination.lng);
     const baseTime = Math.floor(distance * 2); // 2 minutes per km estimate
     
@@ -157,7 +177,7 @@ class MapsService {
     
     // Generate primary route (fastest)
     routes.push(this.createMockRoute(origin, destination, {
-      summary: 'Fastest Route',
+      summary: 'Fastest Route (Mock)',
       distance: distance,
       duration: baseTime * 60,
       routeType: 'fastest'
@@ -166,7 +186,7 @@ class MapsService {
     // Generate alternative route (healthiest) if requested
     if (alternatives) {
       routes.push(this.createMockRoute(origin, destination, {
-        summary: 'Healthiest Route',
+        summary: 'Healthiest Route (Mock)',
         distance: distance * 1.15, // 15% longer
         duration: baseTime * 60 * 1.2, // 20% more time
         routeType: 'healthiest'
@@ -263,7 +283,7 @@ class MapsService {
   // Reverse geocode coordinates to address
   async reverseGeocode(lat, lng) {
     try {
-      if (!this.googleApiKey) {
+      if (!this.googleApiKey || this.googleApiKey === 'your_google_maps_api_key_here_optional') {
         throw new Error('Google Maps API key not configured');
       }
 

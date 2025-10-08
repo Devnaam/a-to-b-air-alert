@@ -22,6 +22,11 @@ const schemas = {
     password: Joi.string().min(8).max(128).required()
   }),
 
+  // this is geoecnogoind schema
+  geocodeAddress: Joi.object({
+    address: Joi.string().min(3).max(200).required()
+  }),
+
   // User login
   loginUser: Joi.object({
     email: Joi.string().email().required(),
