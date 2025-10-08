@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   MapPin, 
   Navigation, 
@@ -9,7 +9,10 @@ import {
   Loader,
   Map,
   Eye,
-  MapPin as LocationIcon
+  Search,
+  X,
+  Crosshair,
+  RotateCcw
 } from 'lucide-react';
 import { 
   geocodeAddress, 
@@ -28,116 +31,177 @@ const RoutePlanner = () => {
   const [selectedRoute, setSelectedRoute] = useState(null);
   const [error, setError] = useState('');
   const [showTimeIntelligence, setShowTimeIntelligence] = useState(false);
-  const [showMap, setShowMap] = useState(false);
+  const [showMap, setShowMap] = useState(true); // ✅ Always show map by default
   const [locationStatus, setLocationStatus] = useState('');
 
-  // Smart reverse geocoding with multiple fallbacks
+  // ✅ NEW: Search functionality state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const [searchError, setSearchError] = useState('');
+
+  // ✅ NEW: Current location state for always-on map
+  const [currentLocation, setCurrentLocation] = useState(null);
+  const [currentLocationLoading, setCurrentLocationLoading] = useState(true);
+
+  // ✅ NEW: Map view mode state
+  const [mapViewMode, setMapViewMode] = useState('current'); // 'current', 'search', 'route'
+  const [searchedLocation, setSearchedLocation] = useState(null);
+
+  // Real reverse geocoding function (unchanged)
   const reverseGeocode = async (lat, lng) => {
     try {
-      console.log('🔄 Attempting reverse geocoding for:', { lat, lng });
-      
-      // Check if routeAPI.reverseGeocode exists
-      if (typeof routeAPI.reverseGeocode !== 'function') {
-        console.warn('⚠️ routeAPI.reverseGeocode not available, using browser-based geocoding');
-        return await browserReverseGeocode(lat, lng);
-      }
+      console.log('🔄 Getting exact location name for:', lat, lng);
       
       const response = await routeAPI.reverseGeocode({ 
         lat: parseFloat(lat), 
         lng: parseFloat(lng) 
       });
       
-      console.log('✅ Backend reverse geocode response:', response);
-      
       if (response.status === 'success' && response.data && response.data.address) {
         const exactAddress = response.data.address;
         console.log('✅ Exact address found:', exactAddress);
         return exactAddress;
       } else {
-        throw new Error('No address found in backend response');
+        throw new Error('No address found in response');
       }
     } catch (error) {
-      console.error('❌ Backend reverse geocoding failed:', error);
-      
-      // Fallback to browser-based geocoding
-      try {
-        return await browserReverseGeocode(lat, lng);
-      } catch (fallbackError) {
-        console.error('❌ All reverse geocoding methods failed:', fallbackError);
-        
-        // Final fallback to smart coordinate display
-        return getSmartCoordinateDisplay(lat, lng);
-      }
+      console.error('❌ Reverse geocoding failed:', error);
+      return `${parseFloat(lat).toFixed(6)}, ${parseFloat(lng).toFixed(6)}`;
     }
   };
 
-  // Browser-based reverse geocoding using Google Maps (if loaded)
-  const browserReverseGeocode = async (lat, lng) => {
-    return new Promise((resolve, reject) => {
-      if (!window.google || !window.google.maps) {
-        reject(new Error('Google Maps not loaded'));
+  // ✅ NEW: Get current location on component mount
+  useEffect(() => {
+    const getCurrentLocationOnLoad = async () => {
+      if (!navigator.geolocation) {
+        console.warn('Geolocation not supported');
+        setCurrentLocationLoading(false);
         return;
       }
 
-      const geocoder = new window.google.maps.Geocoder();
-      const latlng = { lat: parseFloat(lat), lng: parseFloat(lng) };
+      setCurrentLocationLoading(true);
 
-      geocoder.geocode({ location: latlng }, (results, status) => {
-        if (status === 'OK' && results[0]) {
-          console.log('✅ Browser reverse geocoding successful:', results[0].formatted_address);
-          resolve(results[0].formatted_address);
-        } else {
-          reject(new Error('Browser geocoding failed: ' + status));
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          console.log('📍 Got initial current location:', { latitude, longitude });
+          
+          try {
+            const address = await reverseGeocode(latitude, longitude);
+            setCurrentLocation({
+              lat: latitude,
+              lng: longitude,
+              address: address,
+              accuracy: position.coords.accuracy
+            });
+            
+            console.log('✅ Current location set for map:', address);
+          } catch (error) {
+            console.error('❌ Failed to get address for current location:', error);
+            setCurrentLocation({
+              lat: latitude,
+              lng: longitude,
+              address: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+              accuracy: position.coords.accuracy
+            });
+          } finally {
+            setCurrentLocationLoading(false);
+          }
+        },
+        (error) => {
+          console.error('❌ Failed to get current location on load:', error);
+          setCurrentLocationLoading(false);
+          // Set default location (Delhi) if geolocation fails
+          setCurrentLocation({
+            lat: 28.6139,
+            lng: 77.2090,
+            address: 'New Delhi, India',
+            accuracy: null,
+            isDefault: true
+          });
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 300000
         }
-      });
-    });
-  };
+      );
+    };
 
-  // Smart coordinate display with location hints
-  const getSmartCoordinateDisplay = (lat, lng) => {
-    const latitude = parseFloat(lat);
-    const longitude = parseFloat(lng);
-    
-    // Add location hints based on coordinates
-    let locationHint = '';
-    
-    // India bounds check with detailed regions
-    if (latitude >= 6.0 && latitude <= 37.6 && longitude >= 68.7 && longitude <= 97.25) {
-      // Major cities detection with tighter bounds
-      if (latitude >= 28.40 && latitude <= 28.88 && longitude >= 76.80 && longitude <= 77.50) {
-        locationHint = ' (New Delhi area)';
-      } else if (latitude >= 19.00 && latitude <= 19.30 && longitude >= 72.70 && longitude <= 73.00) {
-        locationHint = ' (Mumbai area)';
-      } else if (latitude >= 12.80 && latitude <= 13.20 && longitude >= 77.40 && longitude <= 77.80) {
-        locationHint = ' (Bangalore area)';
-      } else if (latitude >= 13.00 && latitude <= 13.30 && longitude >= 80.10 && longitude <= 80.40) {
-        locationHint = ' (Chennai area)'; // This should match your location
-      } else if (latitude >= 17.20 && latitude <= 17.60 && longitude >= 78.20 && longitude <= 78.70) {
-        locationHint = ' (Hyderabad area)';
-      } else if (latitude >= 22.40 && latitude <= 22.80 && longitude >= 88.20 && longitude <= 88.50) {
-        locationHint = ' (Kolkata area)';
-      } else if (latitude >= 18.40 && latitude <= 18.80 && longitude >= 73.70 && longitude <= 74.20) {
-        locationHint = ' (Pune area)';
-      } else {
-        // State-level detection
-        if (latitude >= 8.0 && latitude <= 12.8 && longitude >= 74.8 && longitude <= 78.0) {
-          locationHint = ' (Kerala/Karnataka)';
-        } else if (latitude >= 10.0 && latitude <= 16.0 && longitude >= 78.0 && longitude <= 84.0) {
-          locationHint = ' (Tamil Nadu/Andhra Pradesh)';
-        } else if (latitude >= 15.0 && latitude <= 22.0 && longitude >= 72.0 && longitude <= 80.0) {
-          locationHint = ' (Maharashtra/Madhya Pradesh)';
-        } else {
-          locationHint = ' (India)';
-        }
-      }
-    } else {
-      locationHint = '';
+    getCurrentLocationOnLoad();
+  }, []);
+
+  // ✅ NEW: Search places functionality
+  const handleSearch = async (query) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return;
     }
 
-    return `${latitude.toFixed(6)}, ${longitude.toFixed(6)}${locationHint}`;
+    setSearchLoading(true);
+    setSearchError('');
+
+    try {
+      console.log('🔍 Searching for:', query);
+      
+      // Use geocoding API to search for places
+      const response = await geocodeAddress(query);
+      
+      // Create search results array (in real scenario, you might get multiple results)
+      const searchResult = {
+        id: 1,
+        name: response.address,
+        address: response.address,
+        location: response.location,
+        placeId: response.placeId,
+        types: response.types || []
+      };
+
+      setSearchResults([searchResult]);
+      setShowSearchResults(true);
+      
+      console.log('✅ Search results:', [searchResult]);
+    } catch (error) {
+      console.error('❌ Search failed:', error);
+      setSearchError('No results found. Try a different search term.');
+      setSearchResults([]);
+      setShowSearchResults(false);
+    } finally {
+      setSearchLoading(false);
+    }
   };
 
-  // Enhanced current location with high accuracy and multiple attempts
+  // ✅ NEW: Handle search result selection
+  const handleSearchResultSelect = async (result) => {
+    console.log('📍 Selected search result:', result);
+    
+    setSearchedLocation({
+      lat: result.location.lat,
+      lng: result.location.lng,
+      address: result.address,
+      name: result.name,
+      placeId: result.placeId
+    });
+    
+    setMapViewMode('search');
+    setShowSearchResults(false);
+    setSearchQuery(result.name || result.address);
+  };
+
+  // ✅ NEW: Clear search and return to current location
+  const handleClearSearch = () => {
+    setSearchQuery('');
+    setSearchResults([]);
+    setShowSearchResults(false);
+    setSearchError('');
+    setSearchedLocation(null);
+    setMapViewMode('current');
+  };
+
+  // Enhanced current location handler (updated)
   const handleUseCurrentLocation = async () => {
     if (!navigator.geolocation) {
       setError('Geolocation is not supported by this browser');
@@ -146,129 +210,73 @@ const RoutePlanner = () => {
 
     setGeoLoading(true);
     setError('');
-    setLocationStatus('Getting your location...');
+    setLocationStatus('Getting your precise location...');
     
-    // Enhanced geolocation options
-    const options = {
-      enableHighAccuracy: true,
-      timeout: 20000, // 20 seconds
-      maximumAge: 60000 // 1 minute cache
-    };
-
-    // Try high accuracy first
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude, accuracy } = position.coords;
-        console.log('📍 Got location:', { 
-          latitude, 
-          longitude, 
-          accuracy: `${accuracy}m`,
-          timestamp: new Date(position.timestamp).toLocaleTimeString()
-        });
+        console.log('📍 Got current location for form:', { latitude, longitude, accuracy });
         
         setLocationStatus(`Location found (accuracy: ${Math.round(accuracy)}m)`);
         
         try {
-          // Show coordinates immediately for quick feedback
-          const coordDisplay = getSmartCoordinateDisplay(latitude, longitude);
+          const coordDisplay = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
           setFromAddress(coordDisplay);
           setLocationStatus('Getting exact address...');
           
-          // Then try to get the exact address
           const exactAddress = await reverseGeocode(latitude, longitude);
-          
-          // Update with the real address
           setFromAddress(exactAddress);
           setError('');
           setLocationStatus('');
           
-          console.log('✅ Current location set successfully:', exactAddress);
+          // Also update the current location for map
+          setCurrentLocation({
+            lat: latitude,
+            lng: longitude,
+            address: exactAddress,
+            accuracy: accuracy
+          });
+          
+          console.log('✅ Current location updated everywhere:', exactAddress);
         } catch (error) {
           console.error('❌ Address lookup failed:', error);
-          // Keep the smart coordinate display
-          const coordDisplay = getSmartCoordinateDisplay(latitude, longitude);
+          const coordDisplay = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
           setFromAddress(coordDisplay);
           setLocationStatus('Using coordinates (address lookup failed)');
-          
-          // Clear status after 3 seconds
           setTimeout(() => setLocationStatus(''), 3000);
         } finally {
           setGeoLoading(false);
         }
       },
-      async (error) => {
-        console.error('❌ High accuracy geolocation failed:', error);
+      (error) => {
+        console.error('❌ Geolocation error:', error);
+        let errorMessage = 'Unable to get current location.';
         
-        // Try again with lower accuracy as fallback
-        setLocationStatus('High accuracy failed, trying standard GPS...');
+        switch(error.code) {
+          case error.PERMISSION_DENIED:
+            errorMessage = 'Location access denied. Please enable location permissions.';
+            break;
+          case error.POSITION_UNAVAILABLE:
+            errorMessage = 'Location information unavailable.';
+            break;
+          case error.TIMEOUT:
+            errorMessage = 'Location request timed out.';
+            break;
+        }
         
-        navigator.geolocation.getCurrentPosition(
-          async (position) => {
-            const { latitude, longitude, accuracy } = position.coords;
-            console.log('📍 Got location (standard accuracy):', { 
-              latitude, 
-              longitude, 
-              accuracy: `${accuracy}m`
-            });
-            
-            setLocationStatus(`Location found (accuracy: ${Math.round(accuracy)}m)`);
-            
-            try {
-              const coordDisplay = getSmartCoordinateDisplay(latitude, longitude);
-              setFromAddress(coordDisplay);
-              setLocationStatus('Getting exact address...');
-              
-              const exactAddress = await reverseGeocode(latitude, longitude);
-              setFromAddress(exactAddress);
-              setError('');
-              setLocationStatus('');
-              
-              console.log('✅ Current location set (standard accuracy):', exactAddress);
-            } catch (addrError) {
-              const coordDisplay = getSmartCoordinateDisplay(latitude, longitude);
-              setFromAddress(coordDisplay);
-              setLocationStatus('Using coordinates (address lookup failed)');
-              setTimeout(() => setLocationStatus(''), 3000);
-            } finally {
-              setGeoLoading(false);
-            }
-          },
-          (fallbackError) => {
-            console.error('❌ All geolocation attempts failed:', fallbackError);
-            
-            let errorMessage = 'Unable to get your current location.';
-            
-            switch(fallbackError.code) {
-              case fallbackError.PERMISSION_DENIED:
-                errorMessage = 'Location access denied. Please enable location permissions in your browser settings and try again.';
-                break;
-              case fallbackError.POSITION_UNAVAILABLE:
-                errorMessage = 'Location information is unavailable. Please check your GPS, WiFi, or mobile data connection.';
-                break;
-              case fallbackError.TIMEOUT:
-                errorMessage = 'Location request timed out. Please try again or enter your address manually.';
-                break;
-              default:
-                errorMessage = 'An unexpected error occurred while getting your location. Please try again.';
-                break;
-            }
-            
-            setError(errorMessage);
-            setLocationStatus('');
-            setGeoLoading(false);
-          },
-          {
-            enableHighAccuracy: false, // Lower accuracy for fallback
-            timeout: 15000,
-            maximumAge: 300000 // 5 minutes cache
-          }
-        );
+        setError(errorMessage);
+        setLocationStatus('');
+        setGeoLoading(false);
       },
-      options
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 300000
+      }
     );
   };
 
-  // Route planning function (unchanged)
+  // Route planning function (updated to change map mode)
   const handlePlanRoute = async () => {
     if (!fromAddress.trim() || !toAddress.trim()) {
       setError('Please enter both origin and destination addresses');
@@ -331,13 +339,11 @@ const RoutePlanner = () => {
           analysis: 'No air quality data available'
         };
 
-        const airQualityData = analysis.airQualityData || [];
-
         return {
           id: index,
           route: route,
           analysis: analysis,
-          airQualityData: airQualityData,
+          airQualityData: analysis.airQualityData || [],
           breathability: breathability,
           duration: duration,
           distance: distance,
@@ -370,7 +376,7 @@ const RoutePlanner = () => {
 
       setRoutes(processedRoutes);
       setSelectedRoute(processedRoutes[0]);
-      setShowMap(true); // Show map after successful route planning
+      setMapViewMode('route'); // ✅ Switch to route view mode
       
     } catch (err) {
       console.error('❌ Route planning error:', err);
@@ -410,8 +416,114 @@ const RoutePlanner = () => {
         </div>
 
         <div className="grid lg:grid-cols-2 gap-8">
-          {/* Left Column: Route Input + Route Cards */}
+          {/* Left Column: Search + Route Input + Route Cards */}
           <div className="space-y-6">
+            {/* ✅ NEW: Search Places Card */}
+            <div className="card">
+              <h2 className="text-lg font-semibold text-[#333333] mb-4">Explore Places</h2>
+              
+              <div className="space-y-4">
+                {/* Search Input */}
+                <div className="relative">
+                  <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      if (e.target.value.trim()) {
+                        handleSearch(e.target.value);
+                      } else {
+                        handleClearSearch();
+                      }
+                    }}
+                    placeholder="Search for any place, city, or address..."
+                    className="w-full pl-10 pr-10 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#4A90E2] focus:border-[#4A90E2] outline-none transition-all"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={handleClearSearch}
+                      className="absolute right-3 top-3 w-4 h-4 text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                  {searchLoading && (
+                    <Loader className="absolute right-3 top-3 w-4 h-4 text-[#4A90E2] animate-spin" />
+                  )}
+                </div>
+
+                {/* Search Results */}
+                {showSearchResults && searchResults.length > 0 && (
+                  <div className="bg-white border border-gray-200 rounded-lg shadow-sm max-h-60 overflow-y-auto">
+                    {searchResults.map((result) => (
+                      <div
+                        key={result.id}
+                        onClick={() => handleSearchResultSelect(result)}
+                        className="p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors"
+                      >
+                        <div className="flex items-start space-x-3">
+                          <MapPin className="w-4 h-4 text-[#4A90E2] mt-1 flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-[#333333] truncate">
+                              {result.name || result.address}
+                            </div>
+                            {result.name && result.name !== result.address && (
+                              <div className="text-xs text-gray-500 truncate mt-1">
+                                {result.address}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Search Error */}
+                {searchError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="flex items-center space-x-2 text-red-800">
+                      <AlertTriangle className="w-4 h-4" />
+                      <span className="text-sm">{searchError}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Map View Controls */}
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => {
+                      setMapViewMode('current');
+                      handleClearSearch();
+                    }}
+                    className={`flex-1 py-2 px-3 text-sm rounded-lg transition-colors flex items-center justify-center space-x-1 ${
+                      mapViewMode === 'current'
+                        ? 'bg-[#4A90E2] text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    <Crosshair className="w-4 h-4" />
+                    <span>Current Location</span>
+                  </button>
+                  
+                  {routes.length > 0 && (
+                    <button
+                      onClick={() => setMapViewMode('route')}
+                      className={`flex-1 py-2 px-3 text-sm rounded-lg transition-colors flex items-center justify-center space-x-1 ${
+                        mapViewMode === 'route'
+                          ? 'bg-[#50E3C2] text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      <RouteIcon className="w-4 h-4" />
+                      <span>Routes</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {/* Route Input Form */}
             <div className="card">
               <h2 className="text-lg font-semibold text-[#333333] mb-4">Route Details</h2>
@@ -445,7 +557,7 @@ const RoutePlanner = () => {
                       </>
                     ) : (
                       <>
-                        <LocationIcon className="w-3 h-3" />
+                        <Crosshair className="w-3 h-3" />
                         <span>Use current location</span>
                       </>
                     )}
@@ -473,6 +585,16 @@ const RoutePlanner = () => {
                       }}
                     />
                   </div>
+                  {/* Quick fill from search */}
+                  {searchedLocation && (
+                    <button
+                      onClick={() => setToAddress(searchedLocation.address)}
+                      className="mt-2 text-sm text-[#50E3C2] hover:text-[#3DD9B7] transition-colors flex items-center space-x-1"
+                    >
+                      <MapPin className="w-3 h-3" />
+                      <span>Use searched location</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Plan Route Button */}
@@ -493,26 +615,6 @@ const RoutePlanner = () => {
                     </>
                   )}
                 </button>
-
-                {/* Map Toggle Button */}
-                {routes.length > 0 && (
-                  <button
-                    onClick={() => setShowMap(!showMap)}
-                    className="w-full btn-secondary flex items-center justify-center space-x-2 text-sm"
-                  >
-                    {showMap ? (
-                      <>
-                        <Eye className="w-4 h-4" />
-                        <span>Hide Map</span>
-                      </>
-                    ) : (
-                      <>
-                        <Map className="w-4 h-4" />
-                        <span>Show Map</span>
-                      </>
-                    )}
-                  </button>
-                )}
 
                 {/* Location Status */}
                 {locationStatus && (
@@ -575,16 +677,19 @@ const RoutePlanner = () => {
             />
           </div>
 
-          {/* Right Column: Map View */}
-          {showMap && routes.length > 0 && (
-            <RouteMapView
-              routes={routes}
-              selectedRoute={selectedRoute}
-              fromAddress={fromAddress}
-              toAddress={toAddress}
-              onSelectRoute={handleSelectRoute}
-            />
-          )}
+          {/* ✅ Right Column: Always-On Enhanced Map View */}
+          <RouteMapView
+            routes={routes}
+            selectedRoute={selectedRoute}
+            fromAddress={fromAddress}
+            toAddress={toAddress}
+            onSelectRoute={handleSelectRoute}
+            currentLocation={currentLocation}
+            currentLocationLoading={currentLocationLoading}
+            searchedLocation={searchedLocation}
+            mapViewMode={mapViewMode}
+            showMap={showMap}
+          />
         </div>
       </div>
     </div>
