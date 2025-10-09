@@ -237,3 +237,16 @@ npm run migrate
 npm run seed
 npm run dev
 ```
+
+
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/e6105a46-2adc-400d-8923-c604dbe3502d" />
+
+```
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/1630d152-9312-454d-99af-a905622559ef" />
+```
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/175fe28c-5d45-47c4-8979-e0da92322501" />
+
+```
+
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/ab170d72-5cbe-4b3b-8f14-8f2110fca46e" />
+
